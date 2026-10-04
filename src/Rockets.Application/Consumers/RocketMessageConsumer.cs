@@ -14,25 +14,39 @@ namespace Rockets.Application.Consumers;
 /// On shutdown the channel is completed and the consumer keeps reading until it is drained, so
 /// messages that were already acknowledged are not lost. Register this service before the
 /// listeners: hosted services stop in reverse order, so listeners stop accepting first.
+/// <para>
+/// This is a plain <see cref="IHostedService"/> rather than a <c>BackgroundService</c>:
+/// <c>BackgroundService</c> starts its loop with the stopping token, so a stop that comes before
+/// the loop is scheduled would skip it entirely and leave acknowledged messages unprocessed.
+/// </para>
 /// </remarks>
 public sealed partial class RocketMessageConsumer(
     IMessageChannel channel,
     IRocketRegistry registry,
-    ILogger<RocketMessageConsumer> logger) : BackgroundService
+    ILogger<RocketMessageConsumer> logger) : IHostedService
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    private Task _consuming = Task.CompletedTask;
+
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Not bound to stoppingToken: reading ends when the channel is completed and drained.
+        _consuming = Task.Run(ConsumeAsync, CancellationToken.None);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Completes the channel and waits until every queued message has been applied.</summary>
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        channel.Complete();
+        await _consuming.WaitAsync(cancellationToken);
+    }
+
+    private async Task ConsumeAsync()
+    {
+        // Reading ends when the channel is completed and drained.
         await foreach (var message in channel.ReadAllAsync(CancellationToken.None))
         {
             Process(message);
         }
-    }
-
-    public override async Task StopAsync(CancellationToken cancellationToken)
-    {
-        channel.Complete();
-        await base.StopAsync(cancellationToken);
     }
 
     private void Process(RocketMessage message)
