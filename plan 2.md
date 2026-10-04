@@ -1,6 +1,6 @@
 # Plan 2 — Rockets Monitor
 
-Status: **draft for review**. Nothing is implemented until approved.
+Status: **approved and implemented**. Changes made during implementation are recorded as DEC-14 to DEC-16 in `decisions.md`.
 
 ## 1. Goal
 

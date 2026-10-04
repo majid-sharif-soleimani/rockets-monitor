@@ -194,6 +194,59 @@ There is also an end-to-end run against the real `rockets` program with its defa
 
 ---
 
+*The entries below were added during implementation, on 2026-10-04.*
+
+## DEC-14 — Default rate limit raised to 20,000 per second, based on measurement
+
+**Context.** The first default was 2,000 per second. A full default run of the test program against it produced about 379,000 `429` responses. The run also revealed how the program behaves:
+- It retries rejected messages every **500 ms and ignores `Retry-After`**.
+- When it finishes producing, it **drops whatever is still waiting for redelivery**: 4,516 messages were lost ("Redelivering message failed: writer closed").
+- The resulting state was wrong for 15 of the 20 rockets.
+
+With the limit effectively off, the program peaks at **about 11,000 messages per second**.
+
+**Decision.** The default is 20,000 per second, about twice the observed peak. Rate limiting stays in place against floods, but the expected load is never throttled. The limit can be changed in configuration.
+
+**Consequences.** A 429 is safe only if the sender really does redeliver. Against this program, a limit set too low causes data loss. In general, the limit should be sized from measured load, not guessed.
+
+---
+
+## DEC-15 — The consumer is a plain `IHostedService`, not a `BackgroundService`
+
+**Context.** A consumer test failed intermittently, and then consistently. In .NET 10, `BackgroundService` starts `ExecuteAsync` through `Task.Run` with the stopping token. If the host stops before that work is scheduled, the loop never runs, and `StopAsync` returns without processing the channel. Messages that had already been acknowledged were never applied.
+
+**Decision.** `RocketMessageConsumer` implements `IHostedService` directly:
+- `StartAsync` starts the read loop with no cancellation token.
+- `StopAsync` completes the channel and waits for the loop to finish draining it, bounded by the host's shutdown timeout.
+
+**Consequences.** Draining on shutdown is explicit and no longer depends on `BackgroundService` internals. The test was run 20 times in a row without a failure.
+
+---
+
+## DEC-16 — The listener's embedded web app does not own the process lifetime
+
+**Context.** `HttpMessageListener` runs its own `WebApplication` (DEC-03). By default that app also registers a console lifetime, so it reacted to Ctrl+C/SIGTERM on its own. The log showed the shutdown happening twice, and the shutdown order was no longer controlled by the main host.
+
+**Decision.** The listener's app uses a no-op `IHostLifetime`. It only starts and stops when the main host tells it to, which keeps the order from DEC-10: the listener stops first, then the channel is drained.
+
+---
+
+## Verification
+
+| Check | Result |
+|---|---|
+| Unit and integration tests (`dotnet test`) | 55 passing |
+| Default run of the test program (100,000 messages, concurrency 3, no delay) | All accepted in ~16 s, no 429 or 503, no warnings or errors in the log |
+| State compared with an independent Python implementation (`tools/e2e`) | **0 mismatches** across all 20 rockets |
+| Graceful shutdown (SIGINT) | One clean shutdown, the channel drained |
+| Swagger | Each port documents only its own endpoints |
+
+The independent check works because the program's messages are deterministic for a given seed. Two capture runs contained identical messages.
+
+**Coverage gap.** With the default settings the program sent no duplicates (they only appear on redelivery) and only a few messages arrived out of order. So the end-to-end run barely exercises duplicate detection and reordering. Those cases are covered by the domain tests, in particular the order-independence test with shuffled and duplicated messages.
+
+---
+
 ## Accepted limitations
 
 | Limitation | Why accepted | Way forward |
