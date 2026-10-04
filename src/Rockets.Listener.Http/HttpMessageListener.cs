@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
@@ -67,6 +68,7 @@ public sealed partial class HttpMessageListener(
         builder.Services.AddSingleton(loggerFactory);
         builder.Services.AddSingleton(channel);
         builder.Services.AddSingleton(listenerOptions);
+        builder.Services.AddSingleton<IHostLifetime, EmbeddedHostLifetime>();
 
         builder.Services
             .AddControllers(mvc => mvc.Filters.Add<ChannelUnavailableExceptionFilter>())

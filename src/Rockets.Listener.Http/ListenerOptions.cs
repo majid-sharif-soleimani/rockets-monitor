@@ -16,9 +16,9 @@ public sealed class RateLimitOptions
 {
     public const string SectionName = "RateLimit";
 
-    public int TokenLimit { get; set; } = 2000;
+    public int TokenLimit { get; set; } = 20_000;
 
-    public int TokensPerPeriod { get; set; } = 2000;
+    public int TokensPerPeriod { get; set; } = 20_000;
 
     public TimeSpan ReplenishmentPeriod { get; set; } = TimeSpan.FromSeconds(1);
 }
