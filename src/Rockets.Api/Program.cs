@@ -1,9 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.OpenApi;
-using Rockets.Application.Consumers;
+using Rockets.Application;
 using Rockets.Application.Messaging;
-using Rockets.Application.Queries;
 using Rockets.Domain.Rockets;
 using Rockets.Infrastructure.Messaging;
 using Rockets.Listener.Http;
@@ -20,17 +19,13 @@ builder.Services.Configure<MessageChannelOptions>(builder.Configuration.GetSecti
 builder.Services.Configure<HttpListenerOptions>(builder.Configuration.GetSection(HttpListenerOptions.SectionName));
 builder.Services.Configure<RateLimitOptions>(builder.Configuration.GetSection(RateLimitOptions.SectionName));
 
-// Domain and application
+// Domain, plus the channel and listener implementations the application services depend on
 builder.Services.AddSingleton<IRocketRegistry, RocketRegistry>();
-builder.Services.AddSingleton<IRocketQueryService, RocketQueryService>();
-builder.Services.AddSingleton<IFleetReportService, FleetReportService>();
-
-// Messaging. Hosted services stop in reverse order: the listeners stop accepting messages
-// first, then the consumer completes the channel and drains it.
 builder.Services.AddSingleton<IMessageChannel, InMemoryMessageChannel>();
 builder.Services.AddSingleton<IMessageListener, HttpMessageListener>();
-builder.Services.AddHostedService<RocketMessageConsumer>();
-builder.Services.AddHostedService<MessageListenersHostedService>();
+
+// Application: report services, the consumer and the listener host
+builder.Services.AddApplicationServices();
 
 // Query API
 builder.Services

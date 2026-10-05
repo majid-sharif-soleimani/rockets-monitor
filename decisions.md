@@ -231,7 +231,40 @@ With the limit effectively off, the program peaks at **about 11,000 messages per
 
 ---
 
+*The entries below were added on 2026-10-05, after the first implementation.*
+
+## DEC-17 — Implementation classes are internal; each project exposes interfaces and a registration method
+
+**Context.** In the first implementation most classes were `public`, including ones that no other project needs to name.
+
+**Decision.**
+- **Domain:** `RocketMonitor` is `internal`. Other projects use it only through `IRocketMonitor`, and get instances from `IRocketRegistry`. `MessageNumberTracker` (the watermark and sorted set from DEC-08) is a private class inside `RocketMonitor`.
+- **Application:** `RocketMessageConsumer` and `MessageListenersHostedService` are `internal`. A public `ServiceRegistry.AddApplicationServices()` registers them, together with the two report services, and `Program.cs` calls it.
+- The registration order of the two hosted services, which decides the shutdown order (DEC-10), now lives inside `AddApplicationServices()` instead of in `Program.cs`.
+- Test projects reach internal classes through `InternalsVisibleTo`.
+
+**Consequences.**
+- The public surface of each project is its interfaces, its data types and one registration method.
+- The host can no longer register the two hosted services in the wrong order.
+- `MessageNumberTracker` can no longer be tested directly. Duplicate detection is tested through `RocketMonitor`.
+
+**Not changed.** `RocketRegistry`, the two report services, `InMemoryMessageChannel` and `HttpMessageListener` are still `public` and are registered from `Program.cs` or `AddApplicationServices()`.
+
+---
+
+## DEC-18 — The end-to-end verification scripts are not kept in the repository
+
+**Context.** The end-to-end check (see Verification) used two one-off Python scripts: one recorded the test program's messages, the other calculated the expected state independently and compared it with the API. They were first committed under `tools/e2e`.
+
+**Decision.** The scripts were removed. The repository contains only the service and its tests.
+
+**Consequences.** The result of the check is recorded below, but it cannot be rerun from the repository. The scripts remain in git history (commit `a33f0a9`).
+
+---
+
 ## Verification
+
+*Measured on 2026-10-04, before DEC-17 and DEC-18.*
 
 | Check | Result |
 |---|---|
@@ -242,6 +275,8 @@ With the limit effectively off, the program peaks at **about 11,000 messages per
 | Swagger | Each port documents only its own endpoints |
 
 The independent check works because the program's messages are deterministic for a given seed. Two capture runs contained identical messages.
+
+**Open item (2026-10-05).** After DEC-17, `tests/Rockets.Domain.Tests/MessageNumberTrackerTests.cs` still refers to `MessageNumberTracker` directly, so the domain test project does not compile. The file has to be removed, or its three cases moved into `RocketMonitorTests`, before the test count above holds again.
 
 **Coverage gap.** With the default settings the program sent no duplicates (they only appear on redelivery) and only a few messages arrived out of order. So the end-to-end run barely exercises duplicate detection and reordering. Those cases are covered by the domain tests, in particular the order-independence test with shuffled and duplicated messages.
 

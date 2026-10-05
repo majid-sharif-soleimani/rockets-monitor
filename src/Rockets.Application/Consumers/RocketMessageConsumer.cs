@@ -20,7 +20,7 @@ namespace Rockets.Application.Consumers;
 /// the loop is scheduled would skip it entirely and leave acknowledged messages unprocessed.
 /// </para>
 /// </remarks>
-public sealed partial class RocketMessageConsumer(
+internal sealed partial class RocketMessageConsumer(
     IMessageChannel channel,
     IRocketRegistry registry,
     ILogger<RocketMessageConsumer> logger) : IHostedService
