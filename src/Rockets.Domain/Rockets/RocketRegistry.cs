@@ -8,6 +8,7 @@ public sealed class RocketRegistry : IRocketRegistry
 
     public int Count => _monitors.Count;
 
+
     public IRocketMonitor GetOrCreate(string channel) =>
         _monitors.GetOrAdd(channel, static c => new RocketMonitor(c));
 

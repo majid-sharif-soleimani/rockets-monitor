@@ -237,7 +237,7 @@ With the limit effectively off, the program peaks at **about 11,000 messages per
 |---|---|
 | Unit and integration tests (`dotnet test`) | 55 passing |
 | Default run of the test program (100,000 messages, concurrency 3, no delay) | All accepted in ~16 s, no 429 or 503, no warnings or errors in the log |
-| State compared with an independent Python implementation (`tools/e2e`) | **0 mismatches** across all 20 rockets |
+| State compared with an independent, throwaway Python implementation of the rules (not kept in the repository) | **0 mismatches** across all 20 rockets |
 | Graceful shutdown (SIGINT) | One clean shutdown, the channel drained |
 | Swagger | Each port documents only its own endpoints |
 

@@ -19,7 +19,7 @@ The work used one AI coding agent (Claude Code), in a fixed loop: **analysis, th
 - reading the challenge and checking the toolchain and the test program's default settings;
 - proposing designs and presenting the trade-offs, written up in `plan 2.md` and `decisions.md`;
 - implementing it test-first, one commit per step;
-- the end-to-end verification tooling (`tools/e2e`) and tuning the defaults.
+- the end-to-end verification (one-off scripts, not kept in the repository) and tuning the defaults.
 
 ## Where agent proposals were overridden
 
@@ -30,6 +30,7 @@ The work used one AI coding agent (Claude Code), in a fixed loop: **analysis, th
 | Lowest message number wins for a duplicate launch or explosion | Rejected. First received wins (DEC-09). |
 | Showing gap and completeness data in the API | Rejected: users don't care about internal state (DEC-11). |
 | A rolling log file | Dropped in favour of console only (DEC-12). |
+| Keeping the end-to-end verification scripts in the repository (`tools/`) | Removed at the author's request. |
 
 ## How correctness was checked
 
