@@ -280,13 +280,72 @@ With the limit effectively off, the program peaks at **about 11,000 messages per
 
 ---
 
+## DEC-20 — The message listener uses a minimal API instead of a controller
+
+**Context.** The listener's web app has one endpoint, `POST /messages`. It was built with an MVC controller, an exception filter that turned a full channel into a 503, and code to keep each app's controllers out of the other app (the listener cleared its controller list, and the API host removed the listener's assembly from its own).
+
+**Decision.**
+- The endpoint is a minimal API route (`MapPost`) inside `HttpMessageListener`. `MessagesController` is removed.
+- The 503 mapping is a plain `try/catch` around the channel write, in the same method. `ChannelUnavailableExceptionFilter` is removed.
+- Validation of the envelope's metadata moves into `RocketMessageMapper`, because minimal APIs do not run the automatic model validation that `[ApiController]` provided.
+- The query API (port 8080) still uses controllers (DEC-01).
+
+**Consequences.**
+- The whole request path for a message (validate, write, map the failure to 503) reads top to bottom in one method.
+- The listener assembly has no controllers, so neither app needs to filter the other's controllers any more. That code is removed from both.
+- The slim web builder does not register the regex route constraint that Swagger's routes need (MVC used to add it), so the listener registers it explicitly.
+- Behaviour is unchanged: the same status codes, headers and Swagger responses, covered by the same listener tests.
+
+---
+
+## DEC-21 — The query API uses minimal APIs instead of controllers
+
+**Context.** DEC-01 chose controllers for the query API. After the listener moved to a minimal API (DEC-20), the service used two styles for three small endpoints.
+
+**Decision.** The query API uses minimal APIs as well. This replaces the "controllers" part of DEC-01 and the note in DEC-20 that the query API still uses controllers.
+- The split from DEC-11 is kept: `RocketEndpoints` maps the single-rocket endpoint and `FleetEndpoints` maps the fleet endpoints. Each is one static class with a `Map...Endpoints` method that `Program.cs` calls.
+- The services, DTOs, routes, status codes and JSON are unchanged.
+
+**What had to be handled explicitly.** Controllers did three things automatically that minimal APIs do not:
+- **Enum query values.** Minimal APIs match enum names case-sensitively, so `sortBy=speed` or `status=notLaunched` would be rejected. The fleet endpoint reads `sortBy`, `order` and `status` as text and parses them itself, ignoring case.
+- **Validation.** The range checks on `page` and `pageSize` are run explicitly, and failures are returned as a 400 validation problem.
+- **Swagger enum names.** Swagger describes enums from the MVC JSON options, so the text-enum converter is registered there as well as in the minimal API JSON options.
+
+**Consequences.**
+- One style across the whole service, and no MVC controller pipeline.
+- `sortBy`, `order` and `status` appear in Swagger as plain text parameters, with the allowed values listed in their descriptions instead of as a dropdown.
+- The integration tests pass unchanged.
+
+---
+
+## DEC-22 — Domain, Infrastructure and the HTTP listener expose only a `ServiceRegistry`; their implementations are internal
+
+**Context.** After DEC-17, the Application project hid its implementations behind a registration method, but Domain, Infrastructure and the HTTP listener still had `public` implementation classes that `Program.cs` named directly.
+
+**Decision.** All three projects follow the same pattern as Application.
+- **Domain:** `RocketMonitorFactory` is `internal`, like `RocketMonitor`. `ServiceRegistry.AddDomainServices()` registers it as `IRocketMonitorFactory`.
+- **Infrastructure:** `RocketRegistry` and `InMemoryMessageChannel` are `internal`. `ServiceRegistry.AddInfrastructureServices()` registers them as `IRocketRegistry` and `IMessageChannel`.
+- **Listener.Http:** `HttpMessageListener`, `MessageEnvelope`, `MessageMetadata` and the mapper types (`RocketMessageMapper`, `MapResult`, `MapStatus`) are `internal`. `ServiceRegistry.AddHttpMessageListener()` registers the listener as an `IMessageListener`.
+- `Program.cs` calls the four registration methods (Domain, Infrastructure, listener, Application). It still binds the options classes from configuration.
+
+This replaces DEC-17's note that these classes are public.
+
+**Consequences.**
+- `Program.cs` no longer names any implementation class from another project. Swapping the registry, the channel or the listener is a change inside one project.
+- **The Domain project now has one package reference**, `Microsoft.Extensions.DependencyInjection.Abstractions`, because its `ServiceRegistry` uses `IServiceCollection`. This relaxes DEC-02's "no framework dependencies": the domain rules themselves still use nothing but the base library, but the project is no longer dependency-free.
+- What stays `public` in Infrastructure and the listener is the registration method and the options classes (`MessageChannelOptions`, `HttpListenerOptions`, `RateLimitOptions`), which `Program.cs` needs for configuration.
+- Test projects reach the internal classes through `InternalsVisibleTo`.
+- The listener's request types are internal but still appear in its Swagger page and bind from JSON as before.
+
+---
+
 ## Verification
 
 *Measured on 2026-10-04, before DEC-17 and DEC-18.*
 
 | Check | Result |
 |---|---|
-| Unit and integration tests (`dotnet test`) | 55 passing |
+| Unit and integration tests (`dotnet test`) | 53 passing (as of 2026-10-05) |
 | Default run of the test program (100,000 messages, concurrency 3, no delay) | All accepted in ~16 s, no 429 or 503, no warnings or errors in the log |
 | State compared with an independent, throwaway Python implementation of the rules (not kept in the repository) | **0 mismatches** across all 20 rockets |
 | Graceful shutdown (SIGINT) | One clean shutdown, the channel drained |
@@ -294,7 +353,7 @@ With the limit effectively off, the program peaks at **about 11,000 messages per
 
 The independent check works because the program's messages are deterministic for a given seed. Two capture runs contained identical messages.
 
-**Open item (2026-10-05).** After DEC-17, `tests/Rockets.Domain.Tests/MessageNumberTrackerTests.cs` still refers to `MessageNumberTracker` directly, so the domain test project does not compile. The file has to be removed, or its three cases moved into `RocketMonitorTests`, before the test count above holds again.
+**Test count.** There were 55 tests when the end-to-end run was made. After DEC-17 the three tests that called `MessageNumberTracker` directly were removed, and one test was added to `RocketMonitorTests` for the case they covered that nothing else did: duplicates are still ignored after a gap has filled.
 
 **Coverage gap.** With the default settings the program sent no duplicates (they only appear on redelivery) and only a few messages arrived out of order. So the end-to-end run barely exercises duplicate detection and reordering. Those cases are covered by the domain tests, in particular the order-independence test with shuffled and duplicated messages.
 

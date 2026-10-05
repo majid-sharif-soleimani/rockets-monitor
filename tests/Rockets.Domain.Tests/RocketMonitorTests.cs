@@ -161,6 +161,23 @@ public class RocketMonitorTests
     }
 
     [Fact]
+    public void Duplicates_are_still_ignored_after_a_gap_has_filled()
+    {
+        var monitor = new RocketMonitor(Channel);
+
+        monitor.Apply(Launched(1, speed: 500));
+        monitor.Apply(Increased(3, 1000));
+        monitor.Apply(Increased(4, 100));
+        Assert.Equal(ApplyResult.Applied, monitor.Apply(Increased(2, 10))); // fills the gap
+
+        Assert.Equal(ApplyResult.Duplicate, monitor.Apply(Increased(2, 10)));
+        Assert.Equal(ApplyResult.Duplicate, monitor.Apply(Increased(3, 1000)));
+        Assert.Equal(ApplyResult.Duplicate, monitor.Apply(Increased(4, 100)));
+        Assert.Equal(ApplyResult.Applied, monitor.Apply(Increased(5, 1)));
+        Assert.Equal(1611, monitor.Current.Speed);
+    }
+
+    [Fact]
     public void Same_number_with_different_content_keeps_the_first_message()
     {
         var monitor = new RocketMonitor(Channel);

@@ -9,7 +9,7 @@ public interface IRocketMonitorFactory
     IRocketMonitor Create(string channel);
 }
 
-public sealed class RocketMonitorFactory : IRocketMonitorFactory
+internal sealed class RocketMonitorFactory : IRocketMonitorFactory
 {
     public IRocketMonitor Create(string channel) => new RocketMonitor(channel);
 }

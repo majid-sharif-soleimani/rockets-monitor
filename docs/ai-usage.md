@@ -34,7 +34,7 @@ The work used one AI coding agent (Claude Code), in a fixed loop: **analysis, th
 
 ## How correctness was checked
 
-- **Tests before code** for each layer: 55 tests, including an order-independence test with shuffled and duplicated messages.
+- **Tests before code** for each layer: 53 tests, including an order-independence test with shuffled and duplicated messages.
 - **Checking against the real program, not only against our own tests.** The program's messages were captured and replayed against an independent Python implementation of the rules, and the results compared field by field: 0 mismatches.
 - **Measuring before choosing defaults.** The rate limit was set from the observed peak (~11k messages/s) after the first default turned out to cause data loss (DEC-14).
 

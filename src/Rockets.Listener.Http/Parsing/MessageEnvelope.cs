@@ -8,7 +8,7 @@ namespace Rockets.Listener.Http.Parsing;
 /// <see cref="MessageMetadata.MessageType"/>, which sits next to it rather than inside it,
 /// so the payload is kept as raw JSON and mapped by <see cref="RocketMessageMapper"/>.
 /// </summary>
-public sealed class MessageEnvelope
+internal sealed class MessageEnvelope
 {
     [Required]
     public MessageMetadata? Metadata { get; init; }
@@ -16,7 +16,7 @@ public sealed class MessageEnvelope
     public JsonElement Message { get; init; }
 }
 
-public sealed class MessageMetadata
+internal sealed class MessageMetadata
 {
     /// <summary>The rocket's radio channel, which identifies the rocket.</summary>
     [Required(AllowEmptyStrings = false)]

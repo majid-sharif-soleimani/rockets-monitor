@@ -3,15 +3,16 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
 using Rockets.Application.Messaging;
-using Rockets.Listener.Http.Controllers;
+using Rockets.Listener.Http.Parsing;
 
 namespace Rockets.Listener.Http;
 
@@ -19,7 +20,8 @@ namespace Rockets.Listener.Http;
 /// Receives rocket messages over HTTP on its own Kestrel server, separate from the query API
 /// (see DEC-03). Rate limiting and backpressure apply only here.
 /// </summary>
-public sealed partial class HttpMessageListener(
+/// <remarks>The server is a minimal API app with a single <c>POST /messages</c> endpoint.</remarks>
+internal sealed partial class HttpMessageListener(
     IMessageChannel channel,
     IOptions<HttpListenerOptions> listenerOptions,
     IOptions<RateLimitOptions> rateLimitOptions,
@@ -70,14 +72,8 @@ public sealed partial class HttpMessageListener(
         builder.Services.AddSingleton(listenerOptions);
         builder.Services.AddSingleton<IHostLifetime, EmbeddedHostLifetime>();
 
-        builder.Services
-            .AddControllers(mvc => mvc.Filters.Add<ChannelUnavailableExceptionFilter>())
-            .ConfigureApplicationPartManager(parts =>
-            {
-                // Only this assembly's controllers: the query API's controllers must not be exposed here.
-                parts.ApplicationParts.Clear();
-                parts.ApplicationParts.Add(new AssemblyPart(typeof(MessagesController).Assembly));
-            });
+        // Swagger's routes use the regex constraint, which the slim builder leaves out.
+        builder.Services.Configure<RouteOptions>(routes => routes.SetParameterPolicy<RegexInlineRouteConstraint>("regex"));
 
         AddRateLimiting(builder.Services, rateLimitOptions.Value);
 
@@ -96,9 +92,50 @@ public sealed partial class HttpMessageListener(
         app.UseSwagger();
         app.UseSwaggerUI();
         app.UseRateLimiter();
-        app.MapControllers();
+        app.MapPost("/messages", ReceiveAsync)
+            .RequireRateLimiting(RateLimitPolicy)
+            .WithSummary("Receives a rocket message.")
+            .WithDescription(
+                "202 is returned only once the message is queued for processing. " +
+                "Any other status makes the sender redeliver the message later.")
+            .Produces(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         app.MapGet("/health", () => Results.Ok(new { status = "healthy" })).ExcludeFromDescription();
         return app;
+    }
+
+    // Handles POST /messages. (A plain comment: an XML summary would replace the Swagger summary above.)
+    private async Task<IResult> ReceiveAsync(MessageEnvelope envelope, HttpContext httpContext, CancellationToken cancellationToken)
+    {
+        var result = RocketMessageMapper.Map(envelope);
+        switch (result.Status)
+        {
+            case MapStatus.Invalid:
+                return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: result.Error);
+
+            case MapStatus.UnknownType:
+                // Acknowledged so the sender does not redeliver a message we will never understand.
+                LogUnknownType(envelope.Metadata!.MessageType!, envelope.Metadata.Channel!, envelope.Metadata.MessageNumber);
+                return Results.Accepted();
+        }
+
+        try
+        {
+            await channel.WriteAsync(result.Message!, cancellationToken);
+            return Results.Accepted();
+        }
+        catch (MessageChannelUnavailableException ex)
+        {
+            // A full or closed channel: answer 503 with Retry-After so the sender redelivers.
+            LogUnavailable(ex.Message);
+            httpContext.Response.Headers.RetryAfter = listenerOptions.Value.RetryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+            return Results.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Service unavailable",
+                detail: ex.Message);
+        }
     }
 
     private void AddRateLimiting(IServiceCollection services, RateLimitOptions options) =>
@@ -130,4 +167,10 @@ public sealed partial class HttpMessageListener(
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Rejected message with 429: rate limit exceeded")]
     private partial void LogRateLimited();
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Rejected message with 503: {Reason}")]
+    private partial void LogUnavailable(string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Ignored unknown message type {MessageType} (#{MessageNumber} on {Channel})")]
+    private partial void LogUnknownType(string messageType, string channel, long messageNumber);
 }

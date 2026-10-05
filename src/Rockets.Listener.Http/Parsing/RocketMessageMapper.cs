@@ -1,19 +1,20 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using Rockets.Domain.Messages;
 
 namespace Rockets.Listener.Http.Parsing;
 
-public enum MapStatus
+internal enum MapStatus
 {
     Mapped,
     UnknownType,
     Invalid,
 }
 
-public readonly record struct MapResult(MapStatus Status, RocketMessage? Message = null, string? Error = null);
+internal readonly record struct MapResult(MapStatus Status, RocketMessage? Message = null, string? Error = null);
 
-/// <summary>Turns a validated envelope into a domain message based on its message type.</summary>
-public static class RocketMessageMapper
+/// <summary>Validates an envelope and turns it into a domain message based on its message type.</summary>
+internal static class RocketMessageMapper
 {
     private static readonly JsonSerializerOptions PayloadOptions = new(JsonSerializerDefaults.Web)
     {
@@ -23,7 +24,17 @@ public static class RocketMessageMapper
 
     public static MapResult Map(MessageEnvelope envelope)
     {
-        var metadata = envelope.Metadata ?? throw new ArgumentException("Envelope has no metadata.", nameof(envelope));
+        if (envelope.Metadata is not { } metadata)
+        {
+            return new MapResult(MapStatus.Invalid, Error: "'metadata' is required.");
+        }
+
+        var errors = new List<ValidationResult>();
+        if (!Validator.TryValidateObject(metadata, new ValidationContext(metadata), errors, validateAllProperties: true))
+        {
+            return new MapResult(MapStatus.Invalid, Error: string.Join(" ", errors.Select(e => e.ErrorMessage)));
+        }
+
         var channel = metadata.Channel!;
         var number = metadata.MessageNumber;
         var time = metadata.MessageTime!.Value;

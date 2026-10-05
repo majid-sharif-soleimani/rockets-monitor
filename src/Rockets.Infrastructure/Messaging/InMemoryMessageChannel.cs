@@ -10,7 +10,7 @@ namespace Rockets.Infrastructure.Messaging;
 /// which were already acknowledged are never dropped; a write that cannot find space within
 /// <see cref="MessageChannelOptions.WriteTimeout"/> fails instead, so the sender redelivers it.
 /// </summary>
-public sealed class InMemoryMessageChannel : IMessageChannel
+internal sealed class InMemoryMessageChannel : IMessageChannel
 {
     private readonly Channel<RocketMessage> _channel;
     private readonly TimeSpan _writeTimeout;

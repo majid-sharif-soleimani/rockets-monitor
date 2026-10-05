@@ -7,7 +7,7 @@ namespace Rockets.Infrastructure.Rockets;
 /// Keeps every rocket's monitor in memory. A shared store (e.g. Redis) can replace it by
 /// implementing <see cref="IRocketRegistry"/>.
 /// </summary>
-public sealed class RocketRegistry(IRocketMonitorFactory monitorFactory) : IRocketRegistry
+internal sealed class RocketRegistry(IRocketMonitorFactory monitorFactory) : IRocketRegistry
 {
     private readonly ConcurrentDictionary<string, IRocketMonitor> _monitors = new();
 

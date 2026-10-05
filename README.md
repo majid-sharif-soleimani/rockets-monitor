@@ -126,18 +126,19 @@ One word is used for two different things, so it is always qualified: a rocket's
 
 The solution has five source projects, one per purpose, and one test project for each. Dependencies point inward: `Domain ← Application ← {Infrastructure, Listener.Http} ← Api`.
 
-Message flow: `HttpMessageListener` → `IMessageChannel` → `RocketMessageConsumer` → `RocketMonitor` (one per rocket) → immutable `RocketState` snapshots → query services → controllers.
+Message flow: `HttpMessageListener` → `IMessageChannel` → `RocketMessageConsumer` → `RocketMonitor` (one per rocket) → immutable `RocketState` snapshots → query services → API endpoints.
 
 ### `src/Rockets.Domain`
 
-The business rules. It has no dependencies on ASP.NET or any other framework.
+The business rules. It does not depend on ASP.NET. Its only package is the .NET dependency injection abstractions, which `ServiceRegistry` needs.
 
 - **`Messages/RocketMessage.cs`**: the five message types as records (`RocketLaunched`, `RocketSpeedIncreased`, `RocketSpeedDecreased`, `RocketExploded`, `RocketMissionChanged`).
 - **`RocketMonitor`** (`IRocketMonitor`): one per rocket. It applies messages in whatever order they arrive and keeps the latest state. The rules give the same result for any arrival order: speed is a sum, the mission with the highest message number wins, and the first launch and first explosion win.
 - **`MessageNumberTracker`** (a private class inside `RocketMonitor`): detects redelivered messages. It remembers a watermark (every message number up to N has been applied) plus a sorted set of the numbers applied above it.
 - **`RocketState`**: an immutable snapshot of a rocket (type, speed, mission, status and so on). The monitor replaces it after every applied message, so readers never need a lock.
 - **`IRocketRegistry`**: the interface for keeping track of every rocket seen so far. Its implementation is in `Rockets.Infrastructure`, because where the rockets are kept is a storage concern, not a business rule.
-- **`RocketMonitorFactory`** (`IRocketMonitorFactory`): creates the monitor for a rocket. A registry in another project uses it, since `RocketMonitor` itself is internal to this project.
+- **`RocketMonitorFactory`** (`IRocketMonitorFactory`): creates the monitor for a rocket. A registry in another project uses it through the interface, since `RocketMonitor` and the factory class are internal to this project.
+- **`ServiceRegistry`**: `AddDomainServices()` registers the factory. `Program.cs` calls it.
 
 ### `src/Rockets.Application`
 
@@ -149,6 +150,7 @@ The use cases, and the interfaces the outer projects implement.
 - **`Queries/RocketQueryService`** (`IRocketQueryService`): the report on one rocket.
 - **`Queries/FleetReportService`** (`IFleetReportService`): the reports on all rockets: the sorted, filtered and paged list, and the summary counts.
 - **`Queries/Dtos.cs`, `FleetQuery.cs`**: what the API returns and accepts (`RocketDto`, `PagedResult`, `FleetSummaryDto`, the sort and filter options). Domain types are converted to these here, so they never reach the API.
+- **`ServiceRegistry`**: `AddApplicationServices()` registers the report services, the consumer and the listener host, so those classes can stay internal. `Program.cs` calls it.
 
 ### `src/Rockets.Infrastructure`
 
@@ -158,6 +160,7 @@ Technical implementations of the Application interfaces.
 - **`MessageChannelOptions`**: the capacity and the write timeout.
 
 - **`Rockets/RocketRegistry`**: the default `IRocketRegistry`. It keeps the rocket monitors in memory and asks the domain's `IRocketMonitorFactory` for a new monitor the first time a channel appears.
+- **`ServiceRegistry`**: `AddInfrastructureServices()` registers the registry and the channel. Both classes are internal, so this is the only way other projects get them. `Program.cs` calls it.
 
 A Kafka-backed channel or a Redis-backed registry, for example, would be added here without changing the other projects.
 
@@ -165,20 +168,19 @@ A Kafka-backed channel or a Redis-backed registry, for example, would be added h
 
 Receives messages over HTTP. It runs its own web server on port 8088, separate from the query API.
 
-- **`HttpMessageListener`**: the HTTP implementation of `IMessageListener`. It builds and runs the web server, with the rate limiter (429) and its own Swagger page.
-- **`Controllers/MessagesController`**: `POST /messages`. It answers 202 only after the message is in the channel.
-- **`Controllers/ChannelUnavailableExceptionFilter`**: turns a full or closed channel into a 503 with `Retry-After`.
-- **`Parsing/MessageEnvelope`, `RocketMessageMapper`**: the JSON shape of an incoming message, and its conversion to a domain message based on `messageType`.
+- **`HttpMessageListener`**: the HTTP implementation of `IMessageListener`. It builds and runs a small minimal-API web server, with the rate limiter (429) and its own Swagger page. It also holds the `POST /messages` endpoint, which answers 202 only after the message is in the channel, and catches a full or closed channel to answer 503 with `Retry-After`.
+- **`Parsing/MessageEnvelope`, `RocketMessageMapper`**: the JSON shape of an incoming message, its validation, and its conversion to a domain message based on `messageType`.
 - **`ListenerOptions.cs`**: the listener address and the rate limit settings.
 - **`EmbeddedHostLifetime`**: stops this web server from reacting to Ctrl+C on its own, so the main application controls the shutdown order.
+- **`ServiceRegistry`**: `AddHttpMessageListener()` registers the listener. `HttpMessageListener` and the parsing types are internal, so this is the only way other projects get one. `Program.cs` calls it.
 
 ### `src/Rockets.Api`
 
 The executable. It wires everything together and serves the query API on port 8080.
 
 - **`Program.cs`**: registers all services, reads the configuration, and sets up Swagger and Serilog. It is the only place that knows which implementation is behind each interface.
-- **`Controllers/RocketsController`**: `GET /api/rockets/{channel}`.
-- **`Controllers/FleetController`**: `GET /api/fleet/rockets` and `GET /api/fleet/summary`.
+- **`Endpoints/RocketEndpoints`**: `GET /api/rockets/{channel}`, as a minimal API endpoint.
+- **`Endpoints/FleetEndpoints`**: `GET /api/fleet/rockets` and `GET /api/fleet/summary`, as minimal API endpoints. It also checks the query parameters and answers 400 for invalid ones.
 - **`appsettings.json`**: the default configuration.
 
 ### `tests/`
@@ -199,7 +201,7 @@ One xUnit project per source project.
 dotnet test
 ```
 
-There are 55 tests. They cover:
+There are 53 tests. They cover:
 
 - the domain rules, including an order-independence test: the same messages, shuffled and with duplicates, must give the same state;
 - the channel's backpressure;

@@ -11,7 +11,7 @@ public static class ServiceRegistry
     /// <summary>
     /// Adds the report services, the message consumer and the listener host. The caller still
     /// registers an <see cref="IMessageChannel"/>, the <see cref="IMessageListener"/>s and the
-    /// rocket registry.
+    /// rocket registry (the first and last come from the Infrastructure project).
     /// </summary>
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
