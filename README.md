@@ -136,7 +136,8 @@ The business rules. It has no dependencies on ASP.NET or any other framework.
 - **`RocketMonitor`** (`IRocketMonitor`): one per rocket. It applies messages in whatever order they arrive and keeps the latest state. The rules give the same result for any arrival order: speed is a sum, the mission with the highest message number wins, and the first launch and first explosion win.
 - **`MessageNumberTracker`** (a private class inside `RocketMonitor`): detects redelivered messages. It remembers a watermark (every message number up to N has been applied) plus a sorted set of the numbers applied above it.
 - **`RocketState`**: an immutable snapshot of a rocket (type, speed, mission, status and so on). The monitor replaces it after every applied message, so readers never need a lock.
-- **`RocketRegistry`** (`IRocketRegistry`): keeps track of every rocket seen so far and creates a monitor the first time a channel appears.
+- **`IRocketRegistry`**: the interface for keeping track of every rocket seen so far. Its implementation is in `Rockets.Infrastructure`, because where the rockets are kept is a storage concern, not a business rule.
+- **`RocketMonitorFactory`** (`IRocketMonitorFactory`): creates the monitor for a rocket. A registry in another project uses it, since `RocketMonitor` itself is internal to this project.
 
 ### `src/Rockets.Application`
 
@@ -156,7 +157,9 @@ Technical implementations of the Application interfaces.
 - **`InMemoryMessageChannel`**: the default `IMessageChannel`, built on a bounded `System.Threading.Channels` channel. When it is full, a write waits briefly and then fails, which the listener turns into a 503. It never drops a message that was already accepted.
 - **`MessageChannelOptions`**: the capacity and the write timeout.
 
-A Kafka-backed channel, for example, would be added here without changing the other projects.
+- **`Rockets/RocketRegistry`**: the default `IRocketRegistry`. It keeps the rocket monitors in memory and asks the domain's `IRocketMonitorFactory` for a new monitor the first time a channel appears.
+
+A Kafka-backed channel or a Redis-backed registry, for example, would be added here without changing the other projects.
 
 ### `src/Rockets.Listener.Http`
 
@@ -184,9 +187,9 @@ One xUnit project per source project.
 
 | Project | What it tests |
 |---|---|
-| `Rockets.Domain.Tests` | The state rules, duplicate detection, the registry, and that the final state does not depend on arrival order. |
+| `Rockets.Domain.Tests` | The state rules, duplicate detection, and that the final state does not depend on arrival order. |
 | `Rockets.Application.Tests` | Sorting, filtering, paging and the summary; the single-rocket query; the consumer, including processing what is left in the channel when stopping. |
-| `Rockets.Infrastructure.Tests` | The channel: ordering, failing when full, waiting for space, refusing writes once closed. |
+| `Rockets.Infrastructure.Tests` | The channel: ordering, failing when full, waiting for space, refusing writes once closed. The registry: one monitor per channel, unknown channels, listing all states. |
 | `Rockets.Listener.Http.Tests` | The message endpoint's responses (202, 400, 429, 503) and the conversion of each message type. |
 | `Rockets.Api.IntegrationTests` | The query endpoints through the real application, and that `/messages` is not exposed on the API port. |
 

@@ -4,6 +4,7 @@ using Rockets.Application.Consumers;
 using Rockets.Domain.Messages;
 using Rockets.Domain.Rockets;
 using Rockets.Infrastructure.Messaging;
+using Rockets.Infrastructure.Rockets;
 
 namespace Rockets.Application.Tests;
 
@@ -14,7 +15,7 @@ public class RocketMessageConsumerTests
     [Fact]
     public async Task Applies_every_message_written_before_stopping()
     {
-        var registry = new RocketRegistry();
+        var registry = new RocketRegistry(new RocketMonitorFactory());
         var consumer = new RocketMessageConsumer(_channel, registry, NullLogger<RocketMessageConsumer>.Instance);
 
         await consumer.StartAsync(CancellationToken.None);
@@ -41,7 +42,7 @@ public class RocketMessageConsumerTests
 
     private sealed class FailingRegistry(string failingChannel) : IRocketRegistry
     {
-        private readonly RocketRegistry _inner = new();
+        private readonly RocketRegistry _inner = new(new RocketMonitorFactory());
 
         public int Count => _inner.Count;
 

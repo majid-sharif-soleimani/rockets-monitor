@@ -1,14 +1,15 @@
 using Rockets.Domain.Messages;
 using Rockets.Domain.Rockets;
+using Rockets.Infrastructure.Rockets;
 
-namespace Rockets.Domain.Tests;
+namespace Rockets.Infrastructure.Tests;
 
 public class RocketRegistryTests
 {
     [Fact]
     public void GetOrCreate_returns_the_same_monitor_for_the_same_channel()
     {
-        var registry = new RocketRegistry();
+        var registry = new RocketRegistry(new RocketMonitorFactory());
 
         var first = registry.GetOrCreate("a");
         var second = registry.GetOrCreate("a");
@@ -20,7 +21,7 @@ public class RocketRegistryTests
     [Fact]
     public void Find_returns_null_for_unknown_channel()
     {
-        var registry = new RocketRegistry();
+        var registry = new RocketRegistry(new RocketMonitorFactory());
 
         Assert.Null(registry.Find("missing"));
     }
@@ -28,7 +29,7 @@ public class RocketRegistryTests
     [Fact]
     public void GetAllStates_returns_the_current_state_of_every_rocket()
     {
-        var registry = new RocketRegistry();
+        var registry = new RocketRegistry(new RocketMonitorFactory());
         registry.GetOrCreate("a").Apply(new RocketSpeedIncreased("a", 2, DateTimeOffset.UnixEpoch, 10));
         registry.GetOrCreate("b");
 

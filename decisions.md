@@ -262,6 +262,24 @@ With the limit effectively off, the program peaks at **about 11,000 messages per
 
 ---
 
+## DEC-19 — The rocket registry implementation lives in Infrastructure; the domain provides a monitor factory
+
+**Context.** `RocketRegistry` was in the Domain project. Its job is to hold the rocket monitors and find them by channel. That is state management, not a business rule, and it may later be replaced by a more robust store such as Redis.
+
+**Decision.**
+- `IRocketRegistry` stays in Domain. Its implementation, `RocketRegistry`, moves to `Rockets.Infrastructure` (still in memory, using a `ConcurrentDictionary`).
+- Domain gets `IRocketMonitorFactory` and `RocketMonitorFactory`. The registry asks the factory for a new monitor the first time it sees a channel. `RocketMonitor` stays `internal` (DEC-17), so the factory is the only way to create one from outside the domain.
+- `Program.cs` registers both the factory and the registry.
+
+**Consequences.**
+- The Domain project now holds only the rules: messages, state, the monitor and the interfaces.
+- A different registry can be added in Infrastructure without touching the domain. It reuses the same factory, so the rules stay in one place.
+- This supersedes the note in DEC-17 that `RocketRegistry` is part of the domain's public surface.
+
+**Not solved by this.** A registry backed by an external store would also have to store each monitor's internal state (speed changes, the watermark, the mission's message number), and keep the single-writer rule from DEC-10 across processes. The monitor is still an in-memory object, so that needs further design.
+
+---
+
 ## Verification
 
 *Measured on 2026-10-04, before DEC-17 and DEC-18.*

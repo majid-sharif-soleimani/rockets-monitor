@@ -5,6 +5,7 @@ using Rockets.Application;
 using Rockets.Application.Messaging;
 using Rockets.Domain.Rockets;
 using Rockets.Infrastructure.Messaging;
+using Rockets.Infrastructure.Rockets;
 using Rockets.Listener.Http;
 using Serilog;
 
@@ -20,6 +21,7 @@ builder.Services.Configure<HttpListenerOptions>(builder.Configuration.GetSection
 builder.Services.Configure<RateLimitOptions>(builder.Configuration.GetSection(RateLimitOptions.SectionName));
 
 // Domain, plus the channel and listener implementations the application services depend on
+builder.Services.AddSingleton<IRocketMonitorFactory, RocketMonitorFactory>();
 builder.Services.AddSingleton<IRocketRegistry, RocketRegistry>();
 builder.Services.AddSingleton<IMessageChannel, InMemoryMessageChannel>();
 builder.Services.AddSingleton<IMessageListener, HttpMessageListener>();

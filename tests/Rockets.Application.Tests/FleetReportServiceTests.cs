@@ -1,6 +1,7 @@
 using Rockets.Application.Queries;
 using Rockets.Domain.Messages;
 using Rockets.Domain.Rockets;
+using Rockets.Infrastructure.Rockets;
 
 namespace Rockets.Application.Tests;
 
@@ -8,7 +9,7 @@ public class FleetReportServiceTests
 {
     private static readonly DateTimeOffset T0 = DateTimeOffset.UnixEpoch;
 
-    private readonly RocketRegistry _registry = new();
+    private readonly RocketRegistry _registry = new(new RocketMonitorFactory());
     private readonly FleetReportService _service;
 
     public FleetReportServiceTests()

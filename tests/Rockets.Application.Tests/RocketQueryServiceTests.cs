@@ -1,6 +1,7 @@
 using Rockets.Application.Queries;
 using Rockets.Domain.Messages;
 using Rockets.Domain.Rockets;
+using Rockets.Infrastructure.Rockets;
 
 namespace Rockets.Application.Tests;
 
@@ -9,7 +10,7 @@ public class RocketQueryServiceTests
     [Fact]
     public void Returns_the_current_state_of_a_known_rocket()
     {
-        var registry = new RocketRegistry();
+        var registry = new RocketRegistry(new RocketMonitorFactory());
         registry.GetOrCreate("a").Apply(new RocketLaunched("a", 1, DateTimeOffset.UnixEpoch, "Falcon-9", 500, "ARTEMIS"));
         var service = new RocketQueryService(registry);
 
@@ -24,7 +25,7 @@ public class RocketQueryServiceTests
     [Fact]
     public void Returns_null_for_an_unknown_rocket()
     {
-        var service = new RocketQueryService(new RocketRegistry());
+        var service = new RocketQueryService(new RocketRegistry(new RocketMonitorFactory()));
 
         Assert.Null(service.GetRocket("missing"));
     }
