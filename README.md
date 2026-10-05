@@ -2,28 +2,108 @@
 
 A .NET 10 service that receives rocket messages and exposes each rocket's current state through a REST API for a dashboard. The challenge description is in [docs/CHALLENGE.md](docs/CHALLENGE.md). Design decisions and trade-offs are in [decisions.md](decisions.md).
 
-## Requirements
+## Running the project
 
-- .NET SDK 10.0
+The steps are the same on Windows, Linux and macOS. Only the way you install .NET and the name of the test program differ.
 
-## Run
+### Prerequisites
+
+| What | Why | Notes |
+|---|---|---|
+| **.NET SDK 10.0** | Builds and runs the service. | The SDK is needed, not only the runtime. Any 10.0.x version works. |
+| **The `rockets` test program** | Sends the rocket messages. | It comes in the challenge ZIP, one folder per system. Nothing to install. |
+| **Ports 8080 and 8088 free** | The service listens on both. | They can be changed; see "If a port is already in use" below. |
+| A terminal | To run the commands. | PowerShell or Command Prompt on Windows; any shell on Linux and macOS. |
+
+No database, Docker or other service is needed. Everything is kept in memory.
+
+**Installing the .NET SDK**
+
+| System | How |
+|---|---|
+| **Windows** | Download the .NET 10 SDK installer from https://dotnet.microsoft.com/download/dotnet/10.0, or run `winget install Microsoft.DotNet.SDK.10`. |
+| **macOS** | Download the .NET 10 SDK installer (Arm64 for Apple silicon, x64 for Intel) from the same page, or run `brew install --cask dotnet-sdk`. |
+| **Linux** | Use your distribution's package manager, following https://learn.microsoft.com/dotnet/core/install/linux. On Ubuntu this is `sudo apt-get install -y dotnet-sdk-10.0`. |
+
+Check the installation in a new terminal. The output should start with `10.0`:
+
+```bash
+dotnet --version
+```
+
+### 1. Get the code
+
+Unzip the submission, or clone the repository, and open a terminal in its root folder (the one that contains `RocketsMonitor.slnx`).
+
+### 2. Build and test (optional)
+
+```bash
+dotnet build
+dotnet test
+```
+
+The first build downloads the NuGet packages, so it needs internet access. All 53 tests should pass.
+
+### 3. Start the service
 
 ```bash
 dotnet run --project src/Rockets.Api -c Release
 ```
 
-The service listens on two ports:
+Wait for the two "Now listening on" lines. The service then listens on two ports:
 
 | Port | Purpose | Swagger |
 |---|---|---|
 | **8088** | Receives messages: `POST /messages` | http://localhost:8088/swagger |
 | **8080** | Query API for the dashboard | http://localhost:8080/swagger |
 
-Then start the test program, for example from the challenge ZIP's `linux_amd64` folder:
+To check it is up, open http://localhost:8080/health in a browser. It should show `{"status":"healthy"}`.
+
+On Windows, the firewall may ask whether to allow the app on the network the first time. Either answer works for local use.
+
+### 4. Send messages with the test program
+
+Leave the service running and open a **second terminal** in the folder of the challenge ZIP that matches your system:
+
+| System | Folder | Command |
+|---|---|---|
+| Windows 64-bit | `windows_amd64` | `.\rockets.exe launch "http://localhost:8088/messages"` |
+| Windows 32-bit | `windows_386` | `.\rockets.exe launch "http://localhost:8088/messages"` |
+| Linux, Intel/AMD | `linux_amd64` | `./rockets launch "http://localhost:8088/messages"` |
+| Linux, Arm | `linux_arm64` | `./rockets launch "http://localhost:8088/messages"` |
+| macOS, Apple silicon | `darwin_arm64` | `./rockets launch "http://localhost:8088/messages"` |
+| macOS, Intel | `darwin_amd64` | `./rockets launch "http://localhost:8088/messages"` |
+
+On Linux and macOS, if you get "permission denied", make the file executable first with `chmod +x rockets`. On macOS, if the system refuses to open the program because it was downloaded, allow it under System Settings → Privacy & Security, or run `xattr -d com.apple.quarantine rockets`.
+
+With no extra options the program sends 100,000 messages as fast as it can, which takes about 16 seconds. To send slowly instead, as in the challenge description:
 
 ```bash
-./rockets launch "http://localhost:8088/messages"
+./rockets launch "http://localhost:8088/messages" --message-delay=500ms --concurrency-level=1
 ```
+
+### 5. Look at the rockets
+
+While the program runs, or after it has finished, open these in a browser or with `curl`:
+
+- http://localhost:8080/api/fleet/summary shows the counts.
+- http://localhost:8080/api/fleet/rockets?sortBy=speed&order=desc lists all rockets, fastest first.
+- http://localhost:8080/api/rockets/{channel} shows one rocket. Take a `channel` value from the list.
+- http://localhost:8080/swagger lets you try every endpoint.
+
+### 6. Stop the service
+
+Press `Ctrl+C` in the first terminal. The service finishes the messages it has already accepted and then exits. All rocket data is in memory, so it is gone after a restart.
+
+### If a port is already in use
+
+Start the service on other ports by adding them after `--`. This works the same on every system:
+
+```bash
+dotnet run --project src/Rockets.Api -c Release -- --urls http://localhost:9080 --Listener:Url http://localhost:9088
+```
+
+Then use `9088` in the test program's address and `9080` for the API.
 
 ## API (port 8080)
 
@@ -61,15 +141,68 @@ Example rocket:
 
 ## Configuration
 
-Settings are in `src/Rockets.Api/appsettings.json` and can be overridden with environment variables (e.g. `RateLimit__TokenLimit=50000`).
+All settings are in [`src/Rockets.Api/appsettings.json`](src/Rockets.Api/appsettings.json). Any of them can be overridden with an environment variable, using `__` between levels, for example `RateLimit__TokenLimit=50000` or `Channel__Capacity=50000`.
 
-| Section | Settings |
-|---|---|
-| `Urls` | Query API address (default `http://0.0.0.0:8080`). |
-| `Listener` | `Url` (default `http://0.0.0.0:8088`), `RetryAfterSeconds`. |
-| `RateLimit` | Global token bucket: `TokenLimit`, `TokensPerPeriod`, `ReplenishmentPeriod` (default 20,000 per second). |
-| `Channel` | Queue `Capacity` (default 10,000) and `WriteTimeout` before answering 503 (default 100 ms). |
-| `Serilog` | Console logging. Set `Serilog__MinimumLevel__Override__Rockets=Debug` to log every message. |
+Durations use the format `hh:mm:ss`, with optional fractions of a second: `00:00:01` is one second and `00:00:00.100` is 100 ms.
+
+### `Urls`
+
+| Property | Value | Meaning |
+|---|---|---|
+| `Urls` | `http://0.0.0.0:8080` | The address the query API and its Swagger page listen on. `0.0.0.0` means all network interfaces. |
+
+### `Listener`
+
+The HTTP server that receives messages.
+
+| Property | Value | Meaning |
+|---|---|---|
+| `Url` | `http://0.0.0.0:8088` | The address `POST /messages` listens on. It is separate from the query API, and it is the address the test program is pointed at. |
+| `RetryAfterSeconds` | `1` | The `Retry-After` value, in seconds, sent with a `503` when the message channel is full. It is also the fallback for a `429` if the rate limiter cannot say when the next message will be allowed. |
+
+### `RateLimit`
+
+One limit shared by all senders, applied to `POST /messages` only. It works as a token bucket: every accepted message takes one token, tokens are added back at a steady rate, and a message that finds the bucket empty gets `429`.
+
+| Property | Value | Meaning |
+|---|---|---|
+| `TokenLimit` | `20000` | The size of the bucket: the largest burst that can be accepted at once. |
+| `TokensPerPeriod` | `20000` | How many tokens are added back each period. |
+| `ReplenishmentPeriod` | `00:00:01` | The length of a period. |
+
+With these values the listener accepts up to 20,000 messages per second. The test program peaks at about 11,000 per second, so a default run is never limited. Do not set this below the real load when using the test program: it does not redeliver rejected messages once it has finished (see DEC-14 in [decisions.md](decisions.md)).
+
+### `Channel`
+
+The message channel: the queue between the listener and the consumer.
+
+| Property | Value | Meaning |
+|---|---|---|
+| `Capacity` | `10000` | The largest number of messages that can wait to be processed. When the channel is full, new messages are not accepted until there is room. |
+| `WriteTimeout` | `00:00:00.100` | How long the listener waits for room in a full channel before it gives up and answers `503`. |
+
+### `Serilog`
+
+Logging. Everything goes to the console.
+
+| Property | Value | Meaning |
+|---|---|---|
+| `MinimumLevel.Default` | `Information` | The lowest level that is logged, unless an override below applies. The levels are `Verbose`, `Debug`, `Information`, `Warning`, `Error` and `Fatal`. |
+| `MinimumLevel.Override` | | A different minimum level for log sources whose name starts with the given prefix. |
+| &nbsp;&nbsp;`Microsoft.AspNetCore` | `Warning` | Hides ASP.NET Core's own per-request details. |
+| &nbsp;&nbsp;`Microsoft.Hosting.Lifetime` | `Information` | Keeps the start-up lines, such as "Now listening on". |
+| &nbsp;&nbsp;`Rockets` | `Debug` | This service's own code. At `Debug` it writes a line for every message applied, every duplicate and every `429`. |
+| `WriteTo` | `Console` | Where log lines go. |
+| `WriteTo[0].Args.outputTemplate` | `[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}` | The layout of a line: time, level as three letters, the class that logged it, the message, and the exception if there is one. |
+| `Enrich` | `FromLogContext` | Lets code attach extra properties to log lines. |
+
+With `Rockets` at `Debug`, a full run of the test program writes more than 100,000 lines to the console. Set it to `Information` to keep the output short, either in the file or with `Serilog__MinimumLevel__Override__Rockets=Information`.
+
+### `AllowedHosts`
+
+| Property | Value | Meaning |
+|---|---|---|
+| `AllowedHosts` | `*` | Which `Host` header values the query API accepts. `*` accepts any. This is the ASP.NET Core default. |
 
 ## Ubiquitous language
 
